@@ -17,6 +17,7 @@ pub mod markdown;
 #[cfg(feature = "mcp")]
 pub mod mcp_config;
 pub mod memory;
+pub mod model_mode;
 pub mod models;
 pub mod openai_chat;
 pub mod opencode_go;

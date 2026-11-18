@@ -2563,7 +2563,11 @@ impl App {
                 agent.set_model(choice.id.clone());
             }
         }
-        if let Some(manager) = &self.subagent_manager {
+        if let Some(manager) = self
+            .subagent_manager
+            .as_ref()
+            .filter(|_| !host::load_prefs().plugins.has_subagent_model())
+        {
             let mut manager = manager.lock();
             manager.set_provider(provider.client);
             manager.set_model(choice.id);
@@ -2626,6 +2630,15 @@ impl App {
         if !self.prefs_enabled {
             return;
         }
+        let mut plugins = host::load_prefs().plugins;
+        if let Some(mode) = plugins.model_mode.as_mut().filter(|mode| mode.enabled) {
+            if let Some(provider) = &self.model_provider {
+                mode.main = Some(crate::model_mode::ModelTarget {
+                    provider: provider.clone(),
+                    model: self.model.clone(),
+                });
+            }
+        }
         save_prefs(&Prefs {
             model: Some(self.model.clone()),
             effort: Some(self.effort.clone()),
@@ -2634,6 +2647,7 @@ impl App {
                 .providers
                 .get(self.provider_choice)
                 .map(|configured| configured.id.clone()),
+            plugins,
         });
     }
 

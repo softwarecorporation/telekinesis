@@ -83,9 +83,15 @@ pub fn hashline_read_arguments(name: &str, arguments: &str) -> Option<String> {
 
 pub fn install_host_hooks(agent: &mut Agent, scope: Scope, prewalk: Arc<Mutex<Prewalk>>) {
     let hooks = HookRegistry::new();
+    let oracle = agent
+        .extra_allowed_tools()
+        .iter()
+        .any(|name| name == "oracle");
     hooks.add(move |event: &HookEvent| match event {
         HookEvent::BeforeTool { tool } => {
-            if !crate::host::host_tool_allowed(scope, &tool.name) {
+            if !crate::host::host_tool_allowed(scope, &tool.name)
+                && !(oracle && tool.name == "oracle")
+            {
                 return HookDecision::Deny {
                     reason: format!("tool not in scope {}: {}", scope.name(), tool.name),
                 };

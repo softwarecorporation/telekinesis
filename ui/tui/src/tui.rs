@@ -242,16 +242,29 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
     // Persisted preferences are the source of truth for model/scope/effort;
     // they win over the per-session resume so changes stick across restarts.
     let prefs = load_prefs();
+    let model_mode = prefs.plugins.resolve(&providers)?;
     let preferred_model = prefs.model.clone().or(resumed_model);
     let effort = prefs.effort.clone().unwrap_or(resumed_effort.clone());
     let initial_registry = initial_model_registry(&providers);
-    let preferred_provider = preferred_provider_index(
-        &providers,
-        &initial_registry,
-        &prefs,
-        preferred_model.as_deref(),
-    );
-    let (provider, model) = if let Some(selected) = providers.get(preferred_provider).cloned() {
+    let preferred_provider = model_mode
+        .main
+        .as_ref()
+        .and_then(|main| {
+            providers
+                .iter()
+                .position(|(provider, _)| provider.id == main.provider.id)
+        })
+        .unwrap_or_else(|| {
+            preferred_provider_index(
+                &providers,
+                &initial_registry,
+                &prefs,
+                preferred_model.as_deref(),
+            )
+        });
+    let (provider, model) = if let Some(main) = &model_mode.main {
+        (main.provider.client.clone(), main.model.clone())
+    } else if let Some(selected) = providers.get(preferred_provider).cloned() {
         (selected.0.client, preferred_model.unwrap_or(selected.1))
     } else {
         anyhow::bail!("Login completed without a usable token");
@@ -268,6 +281,7 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
         initial_registry.clone(),
         &mcp_specs,
     );
+    model_mode.install(&mut agent, &subagent_manager);
     let restored_scope = prefs
         .scope
         .as_deref()
