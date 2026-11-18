@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use crepuscularity_tui::ratatui::text::Line;
 use crepuscularity_tui::{Template, TemplateContext, TemplateValue};
+use futures::StreamExt;
 use parking_lot::Mutex as ParkingMutex;
 use rx4::agent::{Agent, AgentError, CancellationHandle, Event as Rx4Event, ToolSource};
 use rx4::permissions::{Decision, PlanDecision, PlanProposal};
@@ -18,7 +19,7 @@ use crate::host::{self, load_history, save_history, save_prefs, Prefs};
 use crate::host_events::{EventExt, HostSurface};
 use crate::markdown;
 use crate::models::{
-    context_window_for_model, fetch_codex_models, fetch_live_models, fetch_models_dev_models,
+    context_window_for_model, fetch_codex_models, fetch_live_models, fetch_models_dev_fallback,
     fetch_openrouter_models, host_model_info, live_models_targets, oauth_model_info,
     offline_codex_models, PI_OPENAI_GPT5,
 };
@@ -376,18 +377,6 @@ fn offline_models_for(provider: &ConfiguredProvider) -> Vec<ModelInfo> {
         );
     }
     models
-}
-
-/// Pick a replacement from a provider's freshly listed models: the catalog
-/// default when it is listed, else the provider's own first entry.
-fn fallback_model(
-    spec: Option<&provider_catalog::ProviderSpec>,
-    models: &[ModelInfo],
-) -> Option<String> {
-    spec.map(|spec| spec.default_model)
-        .filter(|default| models.iter().any(|model| model.id == *default))
-        .map(str::to_string)
-        .or_else(|| models.first().map(|model| model.id.clone()))
 }
 
 /// Glyph for one engine-owned todo item in the host status block.
@@ -1507,34 +1496,37 @@ impl App {
             } => {
                 // A provider that answered replaces its offline entries: the
                 // catalog cannot know what this account can actually reach.
-                let replaced_in_use = authoritative
+                let missing_selected = authoritative
                     && self.model_provider.as_deref() == Some(provider.as_str())
                     && !models.iter().any(|model| model.id == self.model);
-                let replacement = replaced_in_use
-                    .then(|| fallback_model(provider_catalog::by_id(&provider), &models))
-                    .flatten();
                 if authoritative {
                     self.provider_models.insert(provider.clone(), models);
                 } else if let Some(stored) = self.provider_models.get_mut(&provider) {
                     // Enrichment carries metadata only, never membership.
                     for info in &models {
                         if let Some(entry) = stored.iter_mut().find(|entry| entry.id == info.id) {
-                            *entry = info.clone();
+                            entry.supports_tools |= info.supports_tools;
+                            entry.supports_vision |= info.supports_vision;
+                            entry.supports_reasoning |= info.supports_reasoning;
+                            entry.supports_reasoning_effort |= info.supports_reasoning_effort;
+                            if entry.context_window == context_window_for_model(&entry.id) {
+                                entry.context_window = info.context_window;
+                            }
+                            if entry.max_output_tokens == 8_192 {
+                                entry.max_output_tokens = info.max_output_tokens;
+                            }
                         }
                     }
                 }
                 self.refresh_model_choices();
-                // The provider does not offer the model in use: every prompt
-                // would fail, so move to one it does list and say so.
-                if let Some(replacement) = replacement {
-                    let from = self.model.clone();
-                    self.select_model(&format!("{provider}/{replacement}"));
-                    push_system_message(
-                        self,
-                        format!(
-                            "{provider} does not offer {from}; switched to {provider}/{replacement}."
-                        ),
+                // Listings may omit aliases, private models or staged rollouts.
+                // Discovery must not silently change the user's model choice.
+                if missing_selected {
+                    let message = format!(
+                        "{provider} did not list {}; keeping your selected model. Use /model to choose another.",
+                        self.model
                     );
+                    push_system_message(self, message);
                 }
                 self.refresh_context_window();
                 if self.selecting_model {
@@ -2254,20 +2246,11 @@ impl App {
         tx: tokio::sync::mpsc::UnboundedSender<AppEvent>,
     ) {
         let provider_ids: Vec<String> = self.providers.iter().map(|p| p.id.clone()).collect();
-        let known_models: Vec<(String, String)> = self
-            .model_choices
-            .iter()
-            .map(|choice| (choice.provider.clone(), choice.id.clone()))
-            .collect();
         let live_targets = live_models_targets(&provider_ids);
         let openrouter_key = provider_ids
             .iter()
             .any(|id| id == "openrouter")
-            .then(|| {
-                std::env::var("OPENROUTER_API_KEY")
-                    .ok()
-                    .filter(|key| !key.is_empty())
-            })
+            .then(|| provider_catalog::by_id("openrouter").and_then(provider_catalog::env_key))
             .flatten();
         // Only claim a refresh when a configured provider can answer; with no
         // providers the picker is empty for another reason.
@@ -2290,36 +2273,39 @@ impl App {
                 .then(|| crate::providers::saved_token("openai", &runtime))
                 .flatten();
             runtime.block_on(async move {
-                let mut sources: Vec<futures::future::BoxFuture<'static, ModelAnswer>> = Vec::new();
+                let mut sources: futures::stream::FuturesUnordered<
+                    futures::future::LocalBoxFuture<'static, ModelAnswer>,
+                > = futures::stream::FuturesUnordered::new();
 
                 // One provider's outage must not hide the others, and the
                 // generic `/models` call does not work for every plan.
-                sources.push(Box::pin(async move {
-                    let mut answers = Vec::new();
-                    for provider in rs_ai_oauth::credentials::logged_in_providers() {
+                for provider in rs_ai_oauth::credentials::logged_in_providers() {
+                    let Some(provider_id) = configured_provider_id(provider, &provider_ids) else {
+                        continue;
+                    };
+                    // Codex has a dedicated account-scoped listing below.
+                    if provider_id == "openai-codex" {
+                        continue;
+                    }
+                    sources.push(Box::pin(async move {
                         let Some(token) =
                             crate::providers::saved_token_async(provider.name()).await
                         else {
-                            continue;
+                            return Vec::new();
                         };
                         let Ok(models) = rs_ai_oauth::fetch_models_async(provider, &token).await
                         else {
-                            continue;
+                            return Vec::new();
                         };
-                        let Some(provider_id) = configured_provider_id(provider, &provider_ids)
-                        else {
-                            continue;
-                        };
-                        answers.push((
+                        vec![(
                             provider_id.clone(),
                             models
                                 .into_iter()
                                 .map(|model| oauth_model_info(&provider_id, model))
                                 .collect(),
-                        ));
-                    }
-                    answers
-                }));
+                        )]
+                    }));
+                }
 
                 // ChatGPT accounts get their own listing: the plan decides which
                 // Codex models exist, and the offline catalog cannot know that.
@@ -2353,19 +2339,23 @@ impl App {
                     }));
                 }
 
-                let mut known = known_models;
-                for answers in futures::future::join_all(sources).await {
+                let mut listed = std::collections::HashSet::new();
+                while let Some(answers) = sources.next().await {
                     for (provider, infos) in answers {
-                        known.extend(infos.iter().map(|info| (provider.clone(), info.id.clone())));
+                        if !infos.is_empty() {
+                            listed.insert(provider.clone());
+                        }
                         send_model_choices(&tx, provider, infos, true);
                     }
                 }
 
-                // models.dev last, so what the provider listings omit —
-                // windows, tool/reasoning/vision support — wins over the
-                // family heuristic instead of racing it.
-                for (provider, infos) in fetch_models_dev_models(&known).await {
-                    send_model_choices(&tx, provider, infos, false);
+                // Public fallback membership is used only when this provider
+                // did not answer. Never widen a successful account listing.
+                for provider in &provider_ids {
+                    if !listed.contains(provider) {
+                        let infos = fetch_models_dev_fallback(provider).await;
+                        send_model_choices(&tx, provider.clone(), infos, true);
+                    }
                 }
             });
         });
@@ -4373,7 +4363,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_listing_retires_models_it_no_longer_offers() {
+    fn provider_listing_refreshes_choices_without_changing_selected_model() {
         let mut app = App::new();
         app.providers = vec![provider("openai-codex")];
         app.refresh_model_choices();
@@ -4400,13 +4390,44 @@ mod tests {
             !app.model_choices.iter().any(|choice| choice.id == current),
             "the account's own list replaces the offline catalog"
         );
-        assert_eq!(app.model, "gpt-5.4", "the first listed model takes over");
+        assert_eq!(app.model, current, "discovery preserves the explicit model");
+        assert_eq!(app.model_provider.as_deref(), Some("openai-codex"));
         assert!(
             app.messages.last().is_some_and(|message| {
-                message.content.contains(&current) && message.content.contains("switched to")
+                message.content.contains(&current)
+                    && message.content.contains("keeping your selected model")
             }),
             "{:?}",
             app.messages.last().map(|message| message.content.clone())
+        );
+    }
+
+    #[test]
+    fn catalog_enrichment_preserves_provider_limits_and_capabilities() {
+        let mut app = App::new();
+        app.providers = vec![provider("openai-codex")];
+        let mut account = host_model_info("openai-codex", "custom-private-model");
+        account.context_window = 64_000;
+        account.max_output_tokens = 4_000;
+        account.supports_vision = true;
+        account.supports_reasoning_effort = true;
+        app.handle_event(AppEvent::ModelChoices {
+            provider: "openai-codex".to_string(),
+            models: vec![account.clone()],
+            authoritative: true,
+        });
+        let mut public = host_model_info("openai-codex", "custom-private-model");
+        public.context_window = 1_000_000;
+        public.max_output_tokens = 128_000;
+        app.handle_event(AppEvent::ModelChoices {
+            provider: "openai-codex".to_string(),
+            models: vec![public],
+            authoritative: false,
+        });
+        assert_eq!(
+            app.model_registry.get("custom-private-model"),
+            Some(&account),
+            "public catalog must not widen account limits or erase capabilities"
         );
     }
 
