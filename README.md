@@ -5,7 +5,7 @@
 
 **AI coding agent in your terminal**
 
-telekinesis is the CLI + TUI host for the [rotary](https://github.com/tschk/rotary)
+telekinesis is the CLI + TUI host for the [rotary](https://github.com/softwarecorporation/rotary)
 (rx4) agent harness. rx4 runs in-process; telekinesis adds the terminal UX,
 OAuth login, pi-compatible JSONL v3 sessions, and an ACP JSON-RPC server over
 stdio.
@@ -17,7 +17,7 @@ stdio.
 macOS and Linux (installs `tk` to `~/.local/bin`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tschk/telekinesis/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/softwarecorporation/telekinesis/main/install.sh | bash
 ```
 
 Any platform with a Rust toolchain:
@@ -113,7 +113,7 @@ cd ui/tui && cargo build --release
 - **ADE desktop** (`apps/desktop`) — experimental Tauri ADE shell (Local | Cloud); scaffold only
 - **Web** (`apps/web`) — experimental control plane (shared `--tk-*` tokens)
 
-Cloud backend remains private `tschk/tk-cloud`. Archived sibling `tschk/tk-desktop` is not the desktop home.
+Cloud backend remains private `softwarecorporation/tk-cloud`. Archived sibling `softwarecorporation/tk-desktop` is not the desktop home.
 
 Mobile companion (Expo M0 scaffold): [`apps/mobile`](apps/mobile).
 

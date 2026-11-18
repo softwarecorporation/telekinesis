@@ -417,7 +417,7 @@ function App() {
               Host mode <strong>Local</strong> talks to the telekinesis daemon /
               CLI on this machine. Cloud Workspace Durable Objects stay on the
               other side of the switcher (see{" "}
-              <code>tschk/tk-cloud</code> PLAN · M6).
+              <code>softwarecorporation/tk-cloud</code> PLAN · M6).
             </p>
             <div className="tk-status-line">{localStatus}</div>
           </>

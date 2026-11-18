@@ -1,6 +1,6 @@
 # Telekinesis Mobile (M0)
 
-Expo TypeScript companion for **telekinesis**. Long-term this is full-parity remote control: status, steer, diffs, approvals, and push when an agent is blocked or done. M0 talks HTTP to private [`tschk/tk-cloud`](https://github.com/tschk/tk-cloud). A later milestone adds an E2EE path to a local telekinesis daemon.
+Expo TypeScript companion for **telekinesis**. Long-term this is full-parity remote control: status, steer, diffs, approvals, and push when an agent is blocked or done. M0 talks HTTP to private [`softwarecorporation/tk-cloud`](https://github.com/softwarecorporation/tk-cloud). A later milestone adds an E2EE path to a local telekinesis daemon.
 
 ## UI tokens
 

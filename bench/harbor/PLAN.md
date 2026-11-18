@@ -98,7 +98,7 @@ printf '%s\n' "$INSTRUCTION" | tk exec --json --cwd "$TASK_WORKDIR" --model "$MO
 ### Layout (proposed repo home)
 
 ```text
-tschk/telekinesis
+softwarecorporation/telekinesis
   bench/harbor/
     PLAN.md                 # this doc (symlink or copy)
     agents/tk_harbor_agent.py
@@ -106,7 +106,7 @@ tschk/telekinesis
     smoke_tasks.txt         # 3–5 task ids for Phase A/C
 ```
 
-Alternate if we want harness-only: `tschk/rotary/bench/harbor/` — **prefer telekinesis** because the CLI under test is `tk exec` (host), not raw rx4.
+Alternate if we want harness-only: `softwarecorporation/rotary/bench/harbor/` — **prefer telekinesis** because the CLI under test is `tk exec` (host), not raw rx4.
 
 ### Example commands (once Docker exists)
 

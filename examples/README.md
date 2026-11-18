@@ -7,7 +7,7 @@ default binary (`tk`); optional features are called out inline.
 
 ```bash
 # macOS / Linux installer (installs to ~/.local/bin)
-curl -fsSL https://raw.githubusercontent.com/tschk/telekinesis/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/softwarecorporation/telekinesis/main/install.sh | bash
 
 # or, any platform with a Rust toolchain
 cargo install telekinesis

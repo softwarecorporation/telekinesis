@@ -3,7 +3,7 @@
 Monorepo ADE / web control GUI companion for Telekinesis workspaces (React + Vite).
 
 **Not `cloud.tk.tsc.hk`.** That hostname is the tk-cloud portal
-([`tschk/tk-cloud`](https://github.com/tschk/tk-cloud) `apps/web`, moonshine + crepus).
+([`softwarecorporation/tk-cloud`](https://github.com/softwarecorporation/tk-cloud) `apps/web`, moonshine + crepus).
 This app lives in the telekinesis monorepo for local/dev and Pages deploy elsewhere — it does not own or deploy to `cloud.tk.tsc.hk`.
 
 ## Visual alignment

@@ -6,7 +6,7 @@ Product docs for `tk`. Architecture and the rotary contract live in
 ## Install / build
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tschk/telekinesis/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/softwarecorporation/telekinesis/main/install.sh | bash
 ```
 
 ```bash

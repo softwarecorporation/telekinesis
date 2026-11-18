@@ -24,7 +24,7 @@ flowchart TD
 
 ## Wire
 
-- rx4 is consumed as a git dependency on `tschk/rotary`
+- rx4 is consumed as a git dependency on `softwarecorporation/rotary`
   (`3b1d296f6ae15e353035747d1219bf076adfaa07`, rx4 0.7.2) with `default-features = false`.
   The default `tk` surface keeps `providers` + `builtin-tools` only. Hosts call
   rotary APIs; they do not own hashline, prewalk, or AVO dialects.
@@ -97,7 +97,7 @@ surface presentation. Rotary modules currently containing host adapters are
 migration inventory, not a reason to duplicate host behavior.
 
 See the canonical decision record:
-[telekinesis ADR-001](https://github.com/tschk/telekinesis/blob/main/docs/ADR-001-rotary-engine-telekinesis-host.md).
+[telekinesis ADR-001](https://github.com/softwarecorporation/telekinesis/blob/main/docs/ADR-001-rotary-engine-telekinesis-host.md).
 
 ## rx4 (rotary) modules
 

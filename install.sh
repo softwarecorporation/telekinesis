@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${TK_REPO:-tschk/telekinesis}"
+REPO="${TK_REPO:-softwarecorporation/telekinesis}"
 DEST_DIR="${TK_INSTALL_DIR:-${HOME}/.local/bin}"
 
 need() {

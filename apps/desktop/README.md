@@ -2,7 +2,7 @@
 
 Experimental **desktop ADE shell** for Telekinesis (Tauri 2 + React + TypeScript + Vite).
 
-Lives **inside** [`tschk/telekinesis`](https://github.com/tschk/telekinesis) at `apps/desktop`. The archived sibling `tschk/tk-desktop` is **not** the product home.
+Lives **inside** [`softwarecorporation/telekinesis`](https://github.com/softwarecorporation/telekinesis) at `apps/desktop`. The archived sibling `softwarecorporation/tk-desktop` is **not** the product home.
 
 Related surfaces:
 
@@ -12,7 +12,7 @@ Related surfaces:
 | GPUI companion | `ui/gui` (`telekinesis-companion`) | Experimental native GPUI window — **do not replace** |
 | ADE desktop (this app) | `apps/desktop` | Parallel worktrees / terminals / diffs / in-app browser / Local↔Cloud host switcher |
 | Web control plane | `apps/web` (relocating from tk-web) | React control plane; shared `--tk-*` CSS tokens |
-| Cloud API | private [`tschk/tk-cloud`](https://github.com/tschk/tk-cloud) | Workers / Workspace Durable Objects |
+| Cloud API | private [`softwarecorporation/tk-cloud`](https://github.com/softwarecorporation/tk-cloud) | Workers / Workspace Durable Objects |
 
 Competitors / inspiration for the ADE shell: Orca, Emdash, Superset.
 
@@ -38,7 +38,7 @@ Local = free ADE on your machine. Cloud = always-on host when the laptop sleeps.
 - Node 20+
 - Rust (stable) + [Tauri prerequisites](https://tauri.app/start/prerequisites/)
 - Optional: `tk` / `telekinesis` on `PATH` (`cargo install telekinesis` or repo `install.sh`)
-- Optional (Cloud): local tk-cloud wrangler dev from [tk-cloud PR #1](https://github.com/tschk/tk-cloud/pull/1) (`m1-computer-isolate-shell`)
+- Optional (Cloud): local tk-cloud wrangler dev from [tk-cloud PR #1](https://github.com/softwarecorporation/tk-cloud/pull/1) (`m1-computer-isolate-shell`)
 
 ## Run
 
@@ -59,7 +59,7 @@ Cloud API base URL (optional):
 
 ```bash
 # .env / .env.local — point at wrangler dev for tk-cloud PR #1
-# https://github.com/tschk/tk-cloud/pull/1  (branch m1-computer-isolate-shell)
+# https://github.com/softwarecorporation/tk-cloud/pull/1  (branch m1-computer-isolate-shell)
 VITE_TK_CLOUD_API=http://127.0.0.1:8787
 ```
 
