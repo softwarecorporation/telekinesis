@@ -383,10 +383,7 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
         }
     };
 
-    let event_tx_clone = event_tx.clone();
-    agent.subscribe(move |event: &Rx4Event| {
-        let _ = event_tx_clone.send(AppEvent::Rx4(event.clone()));
-    });
+    subscribe_agent_events(&mut agent, event_tx.clone());
 
     let cancellation = agent.cancellation_handle();
     let agent = Arc::new(Mutex::new(agent));
@@ -1005,12 +1002,190 @@ pub(crate) fn wrap_scrollback_line(
     lines
 }
 
+fn subscribe_agent_events(
+    agent: &mut rx4::Agent,
+    tx: tokio::sync::mpsc::UnboundedSender<AppEvent>,
+) {
+    #[cfg(feature = "pi-compat")]
+    let messages = agent.messages_handle();
+    agent.subscribe(move |event: &Rx4Event| {
+        #[cfg(feature = "pi-compat")]
+        if matches!(event, Rx4Event::BackgroundResultArrived { .. }) {
+            // Rotary records this user message immediately before emitting the
+            // event. Capture it synchronously, before the engine can advance.
+            if let Some(message) = messages.read().last().cloned() {
+                let _ = tx.send(AppEvent::PersistBackgroundMessage(message));
+            }
+        }
+        let _ = tx.send(AppEvent::Rx4(event.clone()));
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::host_model_info;
     use rx4::provider::OpenAIProvider;
     use rx4::ModelRegistry;
+
+    #[cfg(feature = "pi-compat")]
+    #[tokio::test]
+    async fn background_result_survives_jsonl_restore_and_reaches_inference() {
+        use rx4::agent::{ToolCall, ToolDefinition, ToolEffect, ToolRegistry, ToolResult};
+        use rx4::provider::{Message, Provider, ProviderError, StreamEvent, StreamResult};
+        use std::time::Duration;
+
+        #[derive(Default)]
+        struct RecordingProvider(parking_lot::Mutex<Vec<Vec<Message>>>);
+
+        #[async_trait::async_trait]
+        impl Provider for RecordingProvider {
+            fn id(&self) -> &str {
+                "recording"
+            }
+
+            fn name(&self) -> &str {
+                "recording"
+            }
+
+            async fn stream(
+                &self,
+                messages: &[Message],
+                _system: &Option<String>,
+                _model: &str,
+                _tools: &[serde_json::Value],
+                _reasoning_effort: Option<&str>,
+            ) -> Result<StreamResult, ProviderError> {
+                let mut seen = self.0.lock();
+                let first = seen.is_empty();
+                seen.push(messages.to_vec());
+                let mut events = if first {
+                    ["slow", "fast"]
+                        .into_iter()
+                        .map(|name| {
+                            Ok(StreamEvent::ToolCall(ToolCall {
+                                id: name.into(),
+                                name: name.into(),
+                                arguments: "{}".into(),
+                            }))
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![Ok(StreamEvent::Delta("finished".into()))]
+                };
+                events.push(Ok(StreamEvent::Done));
+                Ok(Box::new(futures::stream::iter(events)))
+            }
+        }
+
+        for is_error in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut app = App::new();
+            let mut session = PiSession::new("/project", "recording-model");
+            session.append_message(Role::User, "Run both tools");
+            app.session = Some((session, dir.path().to_path_buf()));
+            let registry = ToolRegistry::new();
+            for (name, delay) in [("slow", 100), ("fast", 0)] {
+                registry.register(
+                    ToolDefinition::new_boxed(
+                        name,
+                        "fixture",
+                        "{}",
+                        Box::new(move |_ctx, _args| {
+                            Box::pin(async move {
+                                if delay > 0 {
+                                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                                }
+                                if is_error && name == "slow" {
+                                    ToolResult::err(name, "oracle failed: cobalt unavailable")
+                                } else {
+                                    ToolResult::ok(name, format!("{name}: cobalt vault"))
+                                }
+                            })
+                        }),
+                    )
+                    .with_effect(ToolEffect::Read),
+                );
+            }
+            let provider = Arc::new(RecordingProvider::default());
+            let mut agent = rx4::Agent::new();
+            agent.set_provider(provider.clone());
+            agent.set_tools(registry);
+            agent.set_policy(rx4::permissions::Policy::full_access());
+            agent.async_tools.sync_window = Duration::from_millis(5);
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            subscribe_agent_events(&mut agent, tx);
+            agent.prompt("Run both tools").await.unwrap();
+            let engine_messages = agent.messages_handle().read().clone();
+            let background = engine_messages
+                .iter()
+                .find(|message| {
+                    message.role == Role::User && message.content.contains("<background_result")
+                })
+                .unwrap();
+            assert!(background.content.contains(if is_error {
+                "oracle failed: cobalt unavailable"
+            } else {
+                "slow: cobalt vault"
+            }));
+            assert!(background.content.contains(if is_error {
+                "status=\"error\""
+            } else {
+                "status=\"done\""
+            }));
+            while let Ok(event) = rx.try_recv() {
+                app.handle_event(event);
+            }
+            app.flush_session();
+            let path = app
+                .session
+                .as_mut()
+                .unwrap()
+                .0
+                .save_jsonl(dir.path())
+                .unwrap();
+            let loaded = PiSession::load_jsonl(&path).unwrap();
+            assert_eq!(
+                loaded
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(
+                        &entry.entry_type,
+                        PiEntryType::Message { role: Role::User, content, tool_call_id: None }
+                            if content == &background.content
+                    ))
+                    .count(),
+                1,
+                "the exact engine background user message must be persisted once"
+            );
+            let mut resumed = rx4::Agent::new();
+            resumed.set_provider(provider.clone());
+            restore_agent_session(&mut resumed, &loaded).unwrap();
+            resumed.prompt("What did the oracle report?").await.unwrap();
+            let seen = provider.0.lock();
+            let continued = seen.last().unwrap();
+            assert_eq!(continued.iter().filter(|m| *m == background).count(), 1);
+            for id in ["slow", "fast"] {
+                let results = continued
+                    .iter()
+                    .filter(|m| m.role == Role::Tool && m.tool_call_id.as_deref() == Some(id))
+                    .collect::<Vec<_>>();
+                assert_eq!(results.len(), 1, "tool results must not be duplicated");
+                assert_eq!(
+                    results[0],
+                    engine_messages
+                        .iter()
+                        .find(|m| { m.role == Role::Tool && m.tool_call_id.as_deref() == Some(id) })
+                        .unwrap()
+                );
+                assert!(results[0].content.contains(if id == "slow" {
+                    "[running in background]"
+                } else {
+                    "fast: cobalt vault"
+                }));
+            }
+        }
+    }
 
     #[cfg(feature = "pi-compat")]
     #[tokio::test]

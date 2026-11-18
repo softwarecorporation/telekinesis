@@ -642,6 +642,8 @@ pub(crate) struct App {
 
 pub(crate) enum AppEvent {
     Rx4(Rx4Event),
+    #[cfg(feature = "pi-compat")]
+    PersistBackgroundMessage(rx4::provider::Message),
     Error(String),
     PromptFailed {
         prompt: String,
@@ -1462,6 +1464,14 @@ impl App {
     pub(crate) fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::Rx4(e) => self.handle_rx4_event(e),
+            #[cfg(feature = "pi-compat")]
+            AppEvent::PersistBackgroundMessage(message) => {
+                self.append_session(PiEntryType::Message {
+                    role: message.role,
+                    content: message.content,
+                    tool_call_id: message.tool_call_id,
+                });
+            }
             AppEvent::Error(msg) => {
                 self.messages.push(ChatMessage {
                     role: "error".to_string(),
