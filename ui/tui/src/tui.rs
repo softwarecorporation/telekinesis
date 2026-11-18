@@ -164,6 +164,63 @@ pub(crate) fn restored_chat(session: &PiSession) -> Vec<ChatMessage> {
     messages
 }
 
+#[cfg(feature = "pi-compat")]
+fn restore_agent_session(agent: &mut rx4::Agent, session: &PiSession) -> anyhow::Result<()> {
+    use rx4::provider::Message;
+
+    let mut messages: Vec<Message> = Vec::new();
+    for entry in &session.entries {
+        match &entry.entry_type {
+            PiEntryType::Message {
+                role,
+                content,
+                tool_call_id,
+            } if *role == Role::Assistant
+                && tool_call_id.is_none()
+                && messages.last().is_some_and(|m| !m.tool_calls.is_empty()) =>
+            {
+                // Rotary emits ToolCall before MessageEnd for the same response.
+                if let Some(message) = messages.last_mut() {
+                    message.content.push_str(content);
+                }
+            }
+            PiEntryType::Message {
+                role,
+                content,
+                tool_call_id,
+            } => messages.push(match tool_call_id {
+                Some(id) => Message::tool(id, content.clone()),
+                None => Message::new(*role, content.clone()),
+            }),
+            PiEntryType::Custom { extension, payload } if extension == pi::TOOL_CALL_EXTENSION => {
+                let call = serde_json::from_value::<rx4::agent::ToolCall>(payload.clone())?;
+                if let Some(message) = messages.last_mut().filter(|m| !m.tool_calls.is_empty()) {
+                    message.tool_calls.push(call);
+                } else {
+                    messages.push(Message::assistant_with_tools("", vec![call]));
+                }
+            }
+            PiEntryType::Custom { extension, payload }
+                if extension == pi::TOOL_RESULT_EXTENSION =>
+            {
+                messages.push(Message::tool(
+                    payload["id"].as_str().unwrap_or_default(),
+                    payload["content"].as_str().unwrap_or_default(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    // Provider requests read Rotary's session, not the public message mirror.
+    agent.clear_messages();
+    for message in messages {
+        agent.append_message(message);
+    }
+    // The engine holds todos in memory only; the session is the durable copy.
+    agent.set_todo_state(session.todos());
+    Ok(())
+}
+
 pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
     let mut tpl = load_template(std::env::var_os("TELEKINESIS_TEMPLATE").as_deref())?;
 
@@ -291,9 +348,7 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
     }
     #[cfg(feature = "pi-compat")]
     if let Some(session) = &loaded_session {
-        *agent.messages.write() = session.messages();
-        // The engine holds todos in memory only; the session is the durable copy.
-        agent.set_todo_state(session.todos());
+        restore_agent_session(&mut agent, session)?;
     }
     let (approver, approval_rx) = ChannelApprover::pair();
     let approval_mode = approver.mode();
@@ -956,6 +1011,110 @@ mod tests {
     use crate::models::host_model_info;
     use rx4::provider::OpenAIProvider;
     use rx4::ModelRegistry;
+
+    #[cfg(feature = "pi-compat")]
+    #[tokio::test]
+    async fn resumed_context_reaches_provider_without_rewriting_jsonl_or_model() {
+        use rx4::provider::{Message, Provider, ProviderError, StreamEvent, StreamResult};
+
+        #[derive(Default)]
+        struct RecordingProvider(parking_lot::Mutex<Vec<(Vec<Message>, String)>>);
+
+        #[async_trait::async_trait]
+        impl Provider for RecordingProvider {
+            fn id(&self) -> &str {
+                "recording"
+            }
+
+            fn name(&self) -> &str {
+                "recording"
+            }
+
+            async fn stream(
+                &self,
+                messages: &[Message],
+                _system: &Option<String>,
+                model: &str,
+                _tools: &[serde_json::Value],
+                _reasoning_effort: Option<&str>,
+            ) -> Result<StreamResult, ProviderError> {
+                self.0.lock().push((messages.to_vec(), model.to_string()));
+                Ok(Box::new(futures::stream::iter([
+                    Ok(StreamEvent::Delta("remembered".into())),
+                    Ok(StreamEvent::Done),
+                ])))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = PiSession::new("/project", "session-model");
+        session.append_message(
+            Role::User,
+            "The north vault is cobalt; the south vault is amber.",
+        );
+        let calls = vec![
+            rx4::agent::ToolCall {
+                id: "east-read".into(),
+                name: "read".into(),
+                arguments: r#"{"path":"east.txt"}"#.into(),
+            },
+            rx4::agent::ToolCall {
+                id: "west-read".into(),
+                name: "read".into(),
+                arguments: r#"{"path":"west.txt"}"#.into(),
+            },
+        ];
+        for call in &calls {
+            session.append(PiEntryType::Custom {
+                extension: pi::TOOL_CALL_EXTENSION.into(),
+                payload: serde_json::to_value(call).unwrap(),
+            });
+        }
+        session.append_message(Role::Assistant, "I will inspect the east vault separately.");
+        session.append(PiEntryType::Custom {
+            extension: pi::TOOL_RESULT_EXTENSION.into(),
+            payload: serde_json::json!({"id":"east-read", "content":"east is jade", "is_error":false}),
+        });
+        // Older sessions can also contain native tool-result messages.
+        session.append_tool_result("west-read", "west is violet");
+        session.append_message(Role::Assistant, "Only the north vault uses cobalt.");
+        session.append_model_change("session-model", "later-session-model");
+        let path = session.save_jsonl(dir.path()).unwrap();
+        let prefix = std::fs::read(&path).unwrap();
+        let mut loaded = PiSession::load_jsonl(&path).unwrap();
+
+        let provider = Arc::new(RecordingProvider::default());
+        let mut agent = rx4::Agent::new();
+        agent.set_provider(provider.clone());
+        agent.set_model("preferred-model");
+        agent.append_message(Message::user("stale context must be replaced"));
+        restore_agent_session(&mut agent, &loaded).unwrap();
+        restore_agent_session(&mut agent, &loaded).unwrap();
+        agent.prompt("Which vault uses cobalt?").await.unwrap();
+
+        let expected = vec![
+            Message::user("The north vault is cobalt; the south vault is amber."),
+            Message::assistant_with_tools("I will inspect the east vault separately.", calls),
+            Message::tool("east-read", "east is jade"),
+            Message::tool("west-read", "west is violet"),
+            Message::assistant("Only the north vault uses cobalt."),
+            Message::user("Which vault uses cobalt?"),
+        ];
+        assert_eq!(
+            *provider.0.lock(),
+            vec![(expected, "preferred-model".into())]
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), prefix);
+        loaded.append_message(Role::User, "Which vault uses cobalt?");
+        loaded.append_message(Role::Assistant, "remembered");
+        assert_eq!(loaded.save_jsonl(dir.path()).unwrap(), path);
+        let continued = std::fs::read(&path).unwrap();
+        assert!(continued.starts_with(&prefix));
+        assert_eq!(
+            PiSession::load_jsonl(&path).unwrap().entry_count(),
+            session.entry_count() + 2
+        );
+    }
 
     fn provider(id: &str) -> (crate::app::ConfiguredProvider, String) {
         (
