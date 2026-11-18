@@ -194,11 +194,20 @@ mod tests {
             } else {
                 if self.id == "oracle-provider" {
                     assert!(tools.is_empty());
+                    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
                 }
                 if self.id == "main-provider" {
-                    assert!(messages.iter().any(
-                        |m| m.role == Role::Tool && m.content.contains("oracle-provider/think")
-                    ));
+                    let has_answer = messages
+                        .iter()
+                        .any(|m| m.content.contains("oracle-provider/think"));
+                    if !has_answer {
+                        assert!(messages.iter().any(|m| m.role == Role::Tool
+                            && m.content.contains("[running in background]")));
+                        return Ok(Box::new(futures::stream::iter([
+                            Ok(StreamEvent::Delta("Waiting for the oracle".into())),
+                            Ok(StreamEvent::Done),
+                        ])));
+                    }
                 }
                 vec![
                     StreamEvent::Delta(format!("{}/{model}", self.id)),
@@ -244,8 +253,14 @@ mod tests {
             &[],
         );
         mode.install(&mut agent, &manager);
+        agent.async_tools.sync_window = std::time::Duration::from_millis(1);
         agent.set_approver(Arc::new(rx4::permissions::AlwaysAllow));
         agent.prompt("consult oracle").await.unwrap();
+        assert_eq!(
+            agent.messages_handle().read().last().unwrap().content,
+            "main-provider/work",
+            "the main response must consume the completed oracle answer"
+        );
         let workspace = dir.path().to_path_buf();
         std::thread::spawn(move || {
             manager
@@ -260,13 +275,15 @@ mod tests {
         .join()
         .unwrap();
         assert_eq!(
-            *seen.lock(),
-            vec![
+            seen.lock()
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+            std::collections::HashSet::from([
                 ("main-provider".into(), "work".into()),
                 ("oracle-provider".into(), "think".into()),
-                ("main-provider".into(), "work".into()),
                 ("child-provider".into(), "small".into()),
-            ]
+            ])
         );
     }
 
