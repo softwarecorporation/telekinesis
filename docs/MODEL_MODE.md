@@ -79,6 +79,9 @@ Workspace files are available only when their contents have entered the
 conversation, for example through a read tool. The oracle has no tools and
 cannot inspect paths or change files. The call times out after 120 seconds.
 Provider failures, empty answers, and attempted tool calls return tool errors.
+Nonempty model text is advice, not a verified answer: check its relevance and
+evidence before using it. The host does not guarantee factual accuracy or enforce
+a question's requested prose format.
 
 Nested oracle usage is not included in the parent agent's usage or cost totals.
 Provider billing still applies.
