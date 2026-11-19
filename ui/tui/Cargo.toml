@@ -1,6 +1,6 @@
 [package]
 name = "telekinesis"
-version = "0.6.26"
+version = "0.6.27"
 edition = "2021"
 license = "MPL-2.0"
 description = "AI coding agent TUI — rx4 harness + crepuscularity-tui, pi-first UX"
@@ -42,8 +42,8 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 rs_ai_oauth = "0.2.31"
-# Includes the merged approval and child-scope authority fixes in rotary #203.
-rx4 = { git = "https://github.com/softwarecorporation/rotary", rev = "1cab19ff905e6023124185832250fed6ff593959", default-features = false, features = ["providers", "builtin-tools"] }
+# Engine 0.8.0 with executing-session context and durable background results.
+rx4 = { git = "https://github.com/softwarecorporation/rotary", rev = "e285683869eed3412f5a876ccd40650252dd2c36", default-features = false, features = ["providers", "builtin-tools"] }
 telekinesis-router = { path = "../router", version = "0.3" }
 darash = { version = "0.6.0", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "charset", "http2", "json", "rustls-tls", "stream"] }

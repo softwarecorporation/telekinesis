@@ -8,8 +8,9 @@
 - TUI built with crepuscularity-tui (ratatui-based)
 - No harness reimplementation — rx4 owns the loop
 - **Owns pi protocol compat** (moved from rotary): JSONL v3 sessions, pi tool
-  name mapping, capability policy, embed SDK surface. Dead RPC/QuickJS
-  extension surfaces removed.
+  name mapping, capability policy, embed SDK surface, and the optional external
+  Bun extension bridge documented in `docs/PI_EXTENSIONS.md`. The old RPC/QuickJS
+  surfaces remain removed; do not imply universal Pi extension support.
 - **Owns ACP** (`tk acp` JSON-RPC stdio host over the in-process rx4 agent)
 
 ## Architecture
@@ -34,15 +35,14 @@ flowchart TD
 
 ## Stack
 
-- **Rust** — the entire product is Rust
+- **Rust** — native host and engine; optional explicitly configured extensions run in external Bun
 - crepuscularity-tui (`ui/tui`) — ratatui-based TUI with hot-reloadable
   `shell.crepus` template — **primary surface**
-- **rx4** crate — TUI pins git `softwarecorporation/rotary` @ `8977d4d` (0.7.5 + live-policy authorizer retention) for harness APIs. GUI retains its separate pin. Default `tk` features:
+- **rx4** crate — TUI pins git `softwarecorporation/rotary` in `ui/tui/Cargo.toml` for harness APIs. GUI retains its separate pin. Default `tk` features:
   providers + builtin-tools. Opt-in: `mcp`, `search` (darash), computer-use,
   skills, graph-memory. `--features full` enables all of those.
 - tokio — async runtime, channels between TUI and agent loop
-- **pi protocol compat** — JSONL v3 sessions and embed SDK (dead RPC/extension
-  surfaces removed)
+- **pi protocol compat** — JSONL v3 sessions, embed SDK and optional explicit-path JavaScript extensions; no runtime starts or dependencies install by default
 
 ## UI surfaces
 

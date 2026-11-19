@@ -61,28 +61,35 @@ execution.
 
 ## Consult the oracle
 
-Ask the agent to consult the oracle and include the evidence the oracle needs.
-The tool accepts one nonempty `question` string. Include any context in that
-string, for example:
+The main agent can call `oracle` when stuck or when it needs a second opinion.
+The tool automatically includes the executing agent's current conversation:
+user requests, assistant messages, tool calls and tool results. It accepts one
+nonempty `question` string for a specific question and any additional evidence:
 
 ```json
 { "question": "Review this retry rule: retry only HTTP 429 and 503, at most twice. What failure cases does it miss?" }
 ```
 
-Each invocation makes one model call with the supplied question and context.
-The oracle receives no parent conversation, workspace files, or tools. It
+Each invocation makes one model call with the question and a snapshot of the
+current session. The transcript is quoted evidence, not executable tool
+protocol. The newest 64 KiB are retained; longer transcripts explicitly report
+that older context was truncated. The question is always supplied in full.
+Shared tools read the executing agent's history, not a captured parent session.
+Workspace files are available only when their contents have entered the
+conversation, for example through a read tool. The oracle has no tools and
 cannot inspect paths or change files. The call times out after 120 seconds.
 Provider failures, empty answers, and attempted tool calls return tool errors.
 
 Nested oracle usage is not included in the parent agent's usage or cost totals.
 Provider billing still applies.
 
-## Use Markdown skills, not Pi extensions
+## Pi extensions and Markdown skills
 
-Pi compatibility covers JSONL v3 sessions, tool-name aliases such as
+Pi session compatibility covers JSONL v3 sessions, tool-name aliases such as
 `read_file` → `read` and `run_command` → `bash`, and the Rust embed SDK
-`create_agent_session`. It does not include JavaScript or TypeScript extensions,
-the Pi package installer, or a QuickJS runtime.
+`create_agent_session`. The optional JavaScript extension bridge and its
+supported API subset are documented in [Pi extensions](PI_EXTENSIONS.md).
+It is separate from model-role configuration and Markdown skills.
 
 Markdown skills are separate from `model_mode`. Build the TUI with
 `--features skills`, or use `--features full` to include skills with the other

@@ -68,6 +68,14 @@ Default `tk` is the lightest useful coding CLI: `pi-compat` (JSONL v3 sessions +
 embed SDK) + `acp` (enabled by default) over rx4 `providers` / `builtin-tools`.
 Everything else is opt-in:
 
+Optional preferences enable [separate main/oracle/subagent models](docs/MODEL_MODE.md)
+and a [Pi JavaScript extension bridge](docs/PI_EXTENSIONS.md). The main agent's
+`oracle` tool includes current-session context. The extension bridge runs supported
+real Pi tools and permission hooks in a separately installed Bun runtime; it is
+not universal Pi compatibility. JavaScript starts only when the bridge is explicitly
+enabled; dependencies are never installed automatically. Extensions are trusted,
+unsandboxed code.
+
 | feature | what it adds |
 |---|---|
 | `mcp` | rx4 MCP + `~/.telekinesis/mcp.json` discover/register |

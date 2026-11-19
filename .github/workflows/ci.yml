@@ -25,6 +25,24 @@ jobs:
       - run: cargo clippy --locked --all-features -- -D warnings
       - run: cargo test --locked
       - run: cargo test --locked --features full
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Install optional extension test dependency
+        working-directory: ui/tui/pi-extensions
+        run: bun install --ignore-scripts
+      - name: Fetch pinned upstream Pi extension contracts
+        run: |
+          git init "$RUNNER_TEMP/pi-contracts"
+          git -C "$RUNNER_TEMP/pi-contracts" fetch --depth=1 https://github.com/earendil-works/pi.git d4d188646c6bbd5d103238cbd05f1e5c01feb9e4
+          git -C "$RUNNER_TEMP/pi-contracts" checkout --detach FETCH_HEAD
+      - name: Execute real Pi JavaScript extensions
+        env:
+          TK_PI_TEST_BUN: bun
+          TK_PI_TEST_TYPEBOX: ${{ github.workspace }}/ui/tui/pi-extensions/typebox.mjs
+          TK_PI_TEST_UPSTREAM: ${{ runner.temp }}/pi-contracts
+          DO_NOT_TRACK: "1"
+        run: cargo test --locked --features full pi::extensions::tests -- --include-ignored --nocapture
       - run: cargo build --locked
       - name: PGO scripts parse
         working-directory: ${{ github.workspace }}

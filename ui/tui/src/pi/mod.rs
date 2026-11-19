@@ -1,8 +1,9 @@
 //! Pi protocol compatibility layer.
 //!
 //! Product surface: JSONL v3 sessions (`PiSession`) and the embed SDK
-//! (`create_agent_session`). Dead RPC/extension/store surfaces were removed.
+//! (`create_agent_session`), plus an explicit-path optional Bun extension bridge.
 
+pub mod extensions;
 pub mod sdk;
 pub mod session;
 pub mod tools;

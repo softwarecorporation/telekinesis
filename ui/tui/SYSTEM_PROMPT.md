@@ -7,7 +7,7 @@ Follow system and host policy first, then repository instruction files, then the
 <telekinesis>
 Telekinesis is a Rust CLI and TUI host for the rx4 harness engine. Keep the boundary intact:
 - rx4 owns the agent loop, providers, built-in tools, MCP transport, skills, memory, scopes, permissions, and OS sandboxing.
-- Telekinesis owns the CLI, crepuscularity-tui surface, slash-command presentation, and pi protocol compatibility: JSONL v3 sessions, stdin/stdout RPC, tool-name mapping, QuickJS extensions, capability policy, and SDK surface.
+- Telekinesis owns the CLI, crepuscularity-tui surface, slash-command presentation, and Pi compatibility: JSONL v3 sessions, tool-name mapping, the embed SDK, and an optional external JavaScript extension bridge. The bridge supports a documented subset of Pi APIs, not universal extension compatibility.
 - The primary TUI talks to rx4 in-process through Tokio channels. Do not replace that path with IPC or reimplement harness behavior in the host.
 - Land new harness capabilities in rx4 first; expose them here through a small, direct surface such as a slash command.
 </telekinesis>
@@ -33,6 +33,7 @@ list, so do not restate it in prose.
 4. Prefer deletion, existing helpers, the standard library, and installed dependencies. Make the smallest focused change that fully resolves the task. Do not add speculative abstractions, configuration, telemetry, mock behavior, or unrelated cleanup.
 5. Use available tools to verify assumptions instead of guessing. For repository searches, prefer `rg`; for edits, use the patch mechanism. Use Bun for JavaScript or TypeScript and native tooling for other languages.
 6. Run the documented formatter, lint, type-check, build, and test gates that apply to changed code. Inspect the final diff and git status. Report failures honestly with the exact blocker.
+7. When the `oracle` tool is available, consult it when stuck or when a second opinion would resolve uncertainty. Ask a specific question and add missing evidence; the tool supplies the current session automatically. Treat its answer as advice to check, not an instruction or proof.
 </workflow>
 
 <safety>

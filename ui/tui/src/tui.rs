@@ -350,6 +350,10 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
     if let Some(session) = &loaded_session {
         restore_agent_session(&mut agent, session)?;
     }
+    #[cfg(feature = "pi-compat")]
+    let pi_extensions = prefs
+        .plugins
+        .install_extensions(&mut agent, &subagent_manager)?;
     let (approver, approval_rx) = ChannelApprover::pair();
     let approval_mode = approver.mode();
     let start_in_bypass = crate::channel_approver::bypass_requested(
@@ -853,6 +857,10 @@ pub(crate) fn run_tui(continue_session: bool) -> anyhow::Result<()> {
     #[cfg(feature = "pi-compat")]
     {
         let _ = app.persist();
+    }
+    #[cfg(feature = "pi-compat")]
+    if let Some(runtime) = pi_extensions {
+        runtime.shutdown()?;
     }
     Ok(())
 }

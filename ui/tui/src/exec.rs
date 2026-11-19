@@ -143,7 +143,8 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     let providers = setup_providers(&rt);
-    let model_mode = crate::host::load_prefs().plugins.resolve(&providers)?;
+    let plugins = crate::host::load_prefs().plugins;
+    let model_mode = plugins.resolve(&providers)?;
     let mode_main = model_mode.main.as_ref().filter(|_| {
         parsed.provider.is_none() && parsed.model.is_none() && requested_provider(None).is_none()
     });
@@ -192,6 +193,8 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
         &mcp,
     );
     model_mode.install(&mut agent, &subagent_manager);
+    #[cfg(feature = "pi-compat")]
+    let pi_extensions = plugins.install_extensions(&mut agent, &subagent_manager)?;
     if parsed.no_yolo {
         agent.set_approver(Arc::new(rx4::permissions::AlwaysDeny));
     } else {
@@ -243,6 +246,10 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
             eprintln!("· retrying once after transient provider error: {error}");
             result = rt.block_on(agent.prompt(&prompt));
         }
+    }
+    #[cfg(feature = "pi-compat")]
+    if let Some(runtime) = pi_extensions {
+        runtime.shutdown()?;
     }
     if let Err(error) = result {
         exec_failure(json, &error.to_string());
