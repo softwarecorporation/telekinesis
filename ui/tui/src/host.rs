@@ -28,6 +28,8 @@ pub struct Prefs {
     /// configured provider a bare model id belongs to.
     #[serde(default)]
     pub provider: Option<String>,
+    #[serde(default)]
+    pub plugins: crate::model_mode::Plugins,
 }
 
 pub fn history_path() -> Option<PathBuf> {

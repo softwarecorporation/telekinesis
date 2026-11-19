@@ -143,9 +143,17 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     let providers = setup_providers(&rt);
+    let plugins = crate::host::load_prefs().plugins;
+    let model_mode = plugins.resolve(&providers)?;
+    let mode_main = model_mode.main.as_ref().filter(|_| {
+        parsed.provider.is_none() && parsed.model.is_none() && requested_provider(None).is_none()
+    });
     let Some((configured, default_model)) = pick_configured_provider(
         providers,
-        parsed.provider.as_deref(),
+        parsed
+            .provider
+            .as_deref()
+            .or_else(|| mode_main.map(|m| m.provider.id.as_str())),
         parsed.model.as_deref(),
     ) else {
         exec_failure(
@@ -174,9 +182,9 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
                 None => model.to_string(),
             },
         )
-        .unwrap_or(default_model);
+        .unwrap_or_else(|| mode_main.map(|m| m.model.clone()).unwrap_or(default_model));
     let effort = resolve_exec_effort(parsed.effort.as_deref());
-    let (mut agent, _subagent_manager) = build_agent(
+    let (mut agent, subagent_manager) = build_agent(
         Some(configured.client),
         &model,
         &effort,
@@ -184,6 +192,9 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
         ModelRegistry::from_models([host_model_info(&configured_id, &model)]),
         &mcp,
     );
+    model_mode.install(&mut agent, &subagent_manager);
+    #[cfg(feature = "pi-compat")]
+    let pi_extensions = plugins.install_extensions(&mut agent, &subagent_manager)?;
     if parsed.no_yolo {
         agent.set_approver(Arc::new(rx4::permissions::AlwaysDeny));
     } else {
@@ -235,6 +246,10 @@ pub fn run_exec(parsed: ExecArgs) -> anyhow::Result<()> {
             eprintln!("· retrying once after transient provider error: {error}");
             result = rt.block_on(agent.prompt(&prompt));
         }
+    }
+    #[cfg(feature = "pi-compat")]
+    if let Some(runtime) = pi_extensions {
+        runtime.shutdown()?;
     }
     if let Err(error) = result {
         exec_failure(json, &error.to_string());

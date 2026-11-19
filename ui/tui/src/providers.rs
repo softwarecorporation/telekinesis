@@ -18,7 +18,7 @@ pub(crate) const ZAI_MODELS: [&str; 2] = ["glm-5.3", "glm-5.3-flash"];
 /// Gemini's OpenAI-compatible base; providers append `/chat/completions`.
 pub(crate) const GEMINI_OPENAI_BASE_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/openai";
-const GOOGLE_KEY_ENV: [&str; 3] = [
+pub(crate) const GOOGLE_KEY_ENV: [&str; 3] = [
     "GOOGLE_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -40,6 +40,8 @@ pub(crate) fn configured_provider_id(
             "chatgpt" => provider.as_str() == "openai-codex" || provider.as_str() == "openai",
             "grok" => provider.as_str() == "xai",
             "gemini" => provider.as_str() == "google",
+            "claude" => provider.as_str() == "anthropic",
+            "kimi" => provider.as_str() == "moonshot",
             _ => provider.as_str() == name,
         })
         .cloned()
@@ -234,7 +236,7 @@ pub(crate) async fn saved_token_async(provider: &str) -> Option<String> {
 
 /// Env vars first, then the `~/.telekinesis/keys.json` store (same order as
 /// the catalog helper, for providers the catalog does not describe).
-fn api_key(env_vars: &[&str], id: &str) -> Option<String> {
+pub(crate) fn api_key(env_vars: &[&str], id: &str) -> Option<String> {
     for var in env_vars {
         if let Ok(value) = std::env::var(var) {
             if !value.trim().is_empty() {
@@ -523,6 +525,10 @@ mod tests {
             .expect("zai provider configured");
         assert_eq!(entry.0.name, "Z.AI Coding Plan");
         assert_eq!(entry.1, "glm-5.3");
+        let targets = crate::models::live_models_targets(&["zai".to_string()]);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].key, "test-key-not-real");
+        assert_eq!(targets[0].url, "https://api.z.ai/api/coding/paas/v4/models");
     }
 
     fn find<'a>(
@@ -560,6 +566,9 @@ mod tests {
 
         let configured = setup_providers(&test_runtime());
 
+        let targets = crate::models::live_models_targets(&["google".to_string()]);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].key, "stored-test-key");
         for id in ["openai", "xai", "google"] {
             let _ = provider_catalog::delete_provider_key(id);
         }
@@ -611,5 +620,20 @@ mod tests {
             .expect("opencode-go provider configured");
         assert_eq!(entry.0.name, "OpenCode Go");
         assert_eq!(entry.1, "deepseek-v4.1-flash");
+        let targets = crate::models::live_models_targets(&["opencode-go".to_string()]);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].key, "test-key-not-real");
+    }
+
+    #[test]
+    fn oauth_discovery_matches_host_provider_ids_before_fetching() {
+        let configured = vec!["anthropic".to_string(), "moonshot".to_string()];
+        for (login, id) in [("claude", "anthropic"), ("kimi", "moonshot")] {
+            assert_eq!(
+                configured_provider_id(oauth_provider(login).unwrap(), &configured).as_deref(),
+                Some(id)
+            );
+        }
+        assert!(configured_provider_id(oauth_provider("gemini").unwrap(), &configured).is_none());
     }
 }

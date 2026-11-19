@@ -82,10 +82,14 @@ pub fn hashline_read_arguments(name: &str, arguments: &str) -> Option<String> {
 }
 
 pub fn install_host_hooks(agent: &mut Agent, scope: Scope, prewalk: Arc<Mutex<Prewalk>>) {
-    let hooks = HookRegistry::new();
-    hooks.add(move |event: &HookEvent| match event {
+    let extra = agent.extra_allowed_tools().to_vec();
+    let hooks = agent.hooks.get_or_insert_with(HookRegistry::new);
+    hooks.replace("telekinesis-host", move |event: &HookEvent| match event {
         HookEvent::BeforeTool { tool } => {
-            if !crate::host::host_tool_allowed(scope, &tool.name) {
+            if !crate::host::host_tool_allowed(scope, &tool.name)
+                && !(extra.contains(&tool.name)
+                    && (tool.name == "oracle" || scope == Scope::Coding))
+            {
                 return HookDecision::Deny {
                     reason: format!("tool not in scope {}: {}", scope.name(), tool.name),
                 };
@@ -110,7 +114,6 @@ pub fn install_host_hooks(agent: &mut Agent, scope: Scope, prewalk: Arc<Mutex<Pr
         }
         _ => HookDecision::Allow,
     });
-    agent.set_hooks(hooks);
 }
 
 #[cfg(test)]
@@ -135,6 +138,36 @@ mod tests {
         assert_eq!(value["limit"], 20);
         assert!(hashline_read_arguments("read", r#"{"path":"x","hashline":true}"#).is_none());
         assert!(hashline_read_arguments("write", r#"{"path":"x"}"#).is_none());
+    }
+
+    #[test]
+    fn scope_changes_preserve_extension_gate_and_limit_custom_tools_to_coding() {
+        let mut agent = Agent::new();
+        agent.allow_extra_tools(["custom_greet"]);
+        crate::host::apply_scope(&mut agent, Scope::Coding);
+        agent.hooks.as_ref().unwrap().add(|_| HookDecision::Deny {
+            reason: "extension blocked".into(),
+        });
+        let call = rx4::agent::ToolCall {
+            id: "custom".into(),
+            name: "custom_greet".into(),
+            arguments: "{}".into(),
+        };
+        for scope in [Scope::Plan, Scope::Research, Scope::Coding] {
+            crate::host::apply_scope(&mut agent, scope);
+            let hooks = agent.hooks.as_ref().unwrap();
+            assert_eq!(
+                hooks.count(),
+                2,
+                "scope change must not duplicate or remove hooks"
+            );
+            let denial = hooks.run_before_tool(&call).unwrap_err();
+            if scope == Scope::Coding {
+                assert_eq!(denial, "extension blocked");
+            } else {
+                assert!(denial.contains("tool not in scope"));
+            }
+        }
     }
 
     #[test]
